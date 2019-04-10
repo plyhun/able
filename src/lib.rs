@@ -3,7 +3,7 @@ use proc_macro2::Span;
 use quote::{quote, ToTokens};
 use syn::parse::{Parse, ParseStream, Result};
 use syn::punctuated::Punctuated;
-use syn::{parenthesized, parse_macro_input, token, Ident, Token};
+use syn::{parenthesized, parse_macro_input, token, Ident, Token, TypeParam, Type};
 
 extern crate proc_macro;
 
@@ -19,9 +19,9 @@ pub fn able(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 pub(crate) struct Able {
     name: Ident,
     _paren: Option<token::Paren>,
-    params: Option<Punctuated<Ident, Token![,]>>,
+    params: Option<Punctuated<Type, Token![,]>>,
     _colon: Option<Token![:]>,
-    extends: Option<Punctuated<Ident, Token![+]>>,
+    extends: Option<Punctuated<TypeParam, Token![+]>>,
 }
 
 impl Parse for Able {
@@ -41,7 +41,7 @@ impl Parse for Able {
                     None
                 }
             },
-            params: params.map(|content| content.parse_terminated(Ident::parse).unwrap()),
+            params: params.map(|content| content.parse_terminated(Type::parse).unwrap()),
             _colon: {
                 let lookahead = input.lookahead1();
                 if lookahead.peek(Token![:]) {
@@ -52,7 +52,7 @@ impl Parse for Able {
                 }
             },
             extends: if extends_present {
-                Some(input.parse_terminated(Ident::parse).unwrap())
+                Some(input.parse_terminated(TypeParam::parse).unwrap())
             } else {
                 None
             },
