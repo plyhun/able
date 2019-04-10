@@ -8,58 +8,21 @@ use syn::{parenthesized, parse_macro_input, token, Ident, Token, Type};
 pub fn make(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let parsed = parse_macro_input!(item as Able);
     let t = quote!(#parsed);
-    //dbg!(format!("{:#}", t));
+    dbg!(format!("{:#}", t));
     proc_macro::TokenStream::from(t)
 }
 
-pub(crate) struct Extends {
-    _colon: Option<Token![:]>,
-    extends: Option<Punctuated<Type, Token![+]>>,
-}
-
-impl Parse for Extends {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let mut extends_present = false;
-        Ok(Self {
-            _colon: {
-                let lookahead = input.lookahead1();
-                if lookahead.peek(Token![:]) {
-                    extends_present = true;
-                    Some(input.parse()?)
-                } else {
-                    None
-                }
-            },
-            extends: if extends_present {
-                Some(input.parse_terminated(Type::parse).unwrap())
-            } else {
-                None
-            },
-        })
-    }
-}
-impl ToTokens for Extends {
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        let expr = if self._colon.is_some() {
-            let extends = self.extends.as_ref()
-                .map(|punct| punct.iter().map(|i| i.clone()).collect::<Vec<_>>())
-                .unwrap_or(vec![]);
-            quote!{ : #(#extends)+* }    
-        } else { 
-            quote!{} 
-        };
-        expr.to_tokens(tokens);
-    }
-}
 pub(crate) struct Able {
     name: Ident,
     _paren: Option<token::Paren>,
     params: Option<Punctuated<Type, Token![,]>>,
-    extends: Extends,
+    _colon: Option<Token![:]>,
+    extends: Option<Punctuated<Ident, Token![+]>>,
 }
 
 impl Parse for Able {
     fn parse(input: ParseStream) -> Result<Self> {
+        let mut extends_present = false;
         let mut params = None;
         Ok(Self {
             name: input.parse()?,
@@ -75,7 +38,20 @@ impl Parse for Able {
                 }
             },
             params: params.map(|content| content.parse_terminated(Type::parse).unwrap()),
-            extends: input.parse()?
+            _colon: {
+                let lookahead = input.lookahead1();
+                if lookahead.peek(Token![:]) {
+                    extends_present = true;
+                    Some(input.parse()?)
+                } else {
+                    None
+                }
+            },
+            extends: if extends_present {
+                Some(input.parse_terminated(Ident::parse).unwrap())
+            } else {
+                None
+            },
         })
     }
 }
@@ -108,10 +84,14 @@ impl ToTokens for Able {
             .map(|i| Ident::new(&format!("arg{}", i), Span::call_site()))
             .collect::<Vec<_>>();
             
-        let extends = &self.extends;
+        let extends = self.extends.as_ref()
+            .map(|punct| punct.iter().map(|i| i.clone()).collect::<Vec<_>>())
+            .unwrap_or(vec![]);
+            
+        let maybe_colon = if extends.len() > 0 { quote!(:) } else { quote!() };    
 
         let expr = quote! {
-            pub trait #ident_able #extends {
+            pub trait #ident_able #maybe_colon #(#extends)+* {
                 fn #ident_fn(&mut self, #(#param_names: #params,)* skip_callbacks: bool);
                 fn #on_ident(&mut self, callback: Option<Box<FnMut(&mut #ident_able #(,#params2)* )>>);
 
