@@ -6,13 +6,13 @@ use syn::punctuated::Punctuated;
 use syn::{parenthesized, parse_macro_input, token, Ident, Token, Type, Lifetime};
 
 pub fn make(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let parsed = parse_macro_input!(item as Able);
+    let parsed = parse_macro_input!(item as Has);
     let t = quote!(#parsed);
     dbg!(format!("{:#}", t));
     proc_macro::TokenStream::from(t)
 }
 
-pub(crate) struct Able {
+pub(crate) struct Has {
     name: Ident,
     _paren: Option<token::Paren>,
     params: Option<Punctuated<Type, Token![,]>>,
@@ -20,7 +20,7 @@ pub(crate) struct Able {
     extends: Option<Punctuated<Ident, Token![+]>>,
 }
 
-impl Parse for Able {
+impl Parse for Has {
     fn parse(input: ParseStream) -> Result<Self> {
         let mut extends_present = false;
         let mut params = None;
@@ -56,36 +56,30 @@ impl Parse for Able {
     }
 }
 
-impl ToTokens for Able {
+impl ToTokens for Has {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let ident = &self.name.to_string().to_camel_case();
+        
+        let ident_has = Ident::new(&format!("Has{}", ident).to_camel_case(), Span::call_site());
+        let ident_has_inner = Ident::new(&format!("Has{}Inner", ident).to_camel_case(), Span::call_site());
         let on_ident = Ident::new(&format!("On{}", ident).to_camel_case(), Span::call_site());
         
-        let ident_able = Ident::new(&format!("{}able", ident).to_camel_case(), Span::call_site());
-        let ident_able_inner = Ident::new(&format!("{}ableInner", ident).to_camel_case(), Span::call_site());
-        
         let ident_fn = Ident::new(&format!("{}", ident).to_snake_case(), Span::call_site());
+        let set_ident_fn = Ident::new(&format!("set_{}", ident).to_snake_case(), Span::call_site());
         let on_ident_fn = Ident::new(&format!("on_{}", ident).to_snake_case(), Span::call_site());
         
         let oopify = &crate::oopify::Oopify {
-	        ident: ident_able.clone()
+	        ident: ident_has.clone()
         };
         
-        let params = self
+        let params = &self
             .params
             .as_ref()
             .map(|punct| punct.iter().map(|i| i.clone()).collect::<Vec<_>>())
             .unwrap_or(vec![]);
-        let params2 = params.clone();
-        let param_names = (0..params.len())
+        let param_names = &(0..params.len())
             .map(|i| Ident::new(&format!("arg{}", i), Span::call_site()))
             .collect::<Vec<_>>();
-            
-        let params_inner = params.clone();
-        let params2_inner = params2.clone();
-        let param_names_inner = param_names.clone();    
-        
-        let params_callback = params.clone();     
             
         let extends = self.extends.as_ref()
             .map(|punct| punct.iter().map(|i| i.clone()).collect::<Vec<_>>())
@@ -96,20 +90,68 @@ impl ToTokens for Able {
             
         let static_ = Lifetime::new("'static", Span::call_site());  
         let static_inner = Lifetime::new("'static", Span::call_site());   
-            
+        
         let expr = quote! {
-            pub trait #ident_able: #static_ + AsAny #(+#extends)*{
-                fn #ident_fn(&mut self, #(#param_names: #params,)* skip_callbacks: bool);
+            pub trait #ident_has: AsAny + #static_ #(+#extends)* {
+                fn #ident_fn(&mut self) -> #(#params),* ;
+                fn #set_ident_fn(&mut self #(,#param_names: #params)*);
                 fn #on_ident_fn(&mut self, callback: Option<#on_ident>);
 
                 #oopify
             }
-            pub trait #ident_able_inner: #(#extends_inner+)* #static_inner {
-                fn #ident_fn(&mut self, #(#param_names_inner: #params_inner,)* skip_callbacks: bool);
-                fn #on_ident_fn(&mut self, callback: Option<Box<FnMut(&mut #ident_able #(,#params2_inner)* )>>);
+            pub trait #ident_has_inner: #static_inner #(+#extends_inner)* {
+                fn #ident_fn(&mut self) -> #(#params),* ;
+                fn #set_ident_fn(&mut self #(,#param_names: #params,)*);
+                fn #on_ident_fn(&mut self, callback: Option<Box<FnMut(&mut dyn #ident_has #(,#params)* )>>);
             }
             
-            pub struct #on_ident(CallbackId, Box<dyn FnMut(&mut #ident_able #(,#params_callback)* )>);
+            pub struct #on_ident(CallbackId, Box<dyn FnMut(&mut dyn #ident_has #(,#params)* )>);
+
+			impl Callback for #on_ident {
+				fn name(&self) -> &'static str {
+					stringify!(#on_ident)
+				}
+				fn id(&self) -> CallbackId {
+					self.0
+				}
+			}
+	
+			impl <T> From<T> for #on_ident where T: FnMut(&mut dyn #ident_has #(,#params)*) + Sized + 'static {
+				fn from(t: T) -> #on_ident {
+					#on_ident(CallbackId::next(), Box::new(t))
+				}
+			}
+			impl AsRef<dyn FnMut(&mut dyn #ident_has #(,#params)*)> for #on_ident {
+				fn as_ref(&self) -> &(dyn FnMut(&mut dyn #ident_has #(,#params)*)  + 'static) {
+					self.1.as_ref()
+				}
+			}
+			impl AsMut<dyn FnMut(&mut dyn #ident_has #(,#params)*)> for #on_ident {
+				fn as_mut(&mut self) -> &mut (dyn FnMut(&mut dyn #ident_has #(,#params)*) + 'static) {
+					self.1.as_mut()
+				}
+			}
+			impl From<#on_ident> for (CallbackId, Box<dyn FnMut(&mut dyn #ident_has #(,#params)*)>) {
+			    fn from(a: #on_ident) -> Self {
+			        (a.0, a.1)
+			    }
+			}
+			impl From<(CallbackId, Box<dyn FnMut(&mut dyn #ident_has #(,#params)*)>)> for #on_ident {
+			    fn from(a: (CallbackId, Box<dyn FnMut(&mut dyn #ident_has #(,#params)*)>)) -> Self {
+			        #on_ident(a.0, a.1)
+			    }
+			}
+	
+			impl ::std::fmt::Debug for #on_ident {
+				fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+					write!(f, "{}({})", self.name(), self.id())
+				}
+			}
+			impl ::std::cmp::PartialEq for #on_ident {
+				fn eq(&self, other: &#on_ident) -> bool {
+					self.id().eq(&other.id())
+				}
+			}
         };
         expr.to_tokens(tokens);
     }
