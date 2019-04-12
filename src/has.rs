@@ -136,8 +136,10 @@ impl ToTokens for Has {
         let on_ident = Ident::new(&ident.to_camel_case(), Span::call_site());
         let on = &crate::on::On {
             ident_camel: &on_ident,
+            ident_owner_camel: &ident_has,
             params: params,
         };
+		let on_ident = Ident::new(&format!("On{}", ident).to_camel_case(), Span::call_site());
 
         let custom = &self.custom;
 
@@ -153,7 +155,7 @@ impl ToTokens for Has {
             pub trait #ident_has_inner: #static_inner #(+#extends_inner)* {
                 fn #ident_fn(&mut self) -> #(#params),* ;
                 fn #set_ident_fn(&mut self #(,#param_names: #params,)*);
-                fn #on_ident_fn(&mut self, callback: Option<Box<FnMut(&mut dyn #ident_has #(,#params)* )>>);
+                fn #on_ident_fn(&mut self, callback: Option<#on_ident>);
 
                 #custom
             }
