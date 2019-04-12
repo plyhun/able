@@ -138,20 +138,20 @@ impl ToTokens for Able {
         let on = &crate::on::On {
             ident_camel: &on_ident,
             ident_owner_camel: &ident_able,
-            params: params,
+            params: self.params.as_ref(),
         };
         let on_ident = Ident::new(&format!("On{}", ident).to_camel_case(), Span::call_site());
 
         let expr = quote! {
             pub trait #ident_able: #static_ + AsAny #(+#extends)*{
-                fn #ident_fn(&mut self, #(#param_names: #params,)* skip_callbacks: bool);
+                fn #ident_fn(&mut self, #(#param_names: #params,)* skip_callbacks: bool) -> bool;
                 fn #on_ident_fn(&mut self, callback: Option<#on_ident>);
 
                 #custom
                 #as_into
             }
             pub trait #ident_able_inner: #(#extends_inner+)* #static_inner {
-                fn #ident_fn(&mut self, #(#param_names: #params,)* skip_callbacks: bool);
+                fn #ident_fn(&mut self, #(#param_names: #params,)* skip_callbacks: bool) -> bool; 
                 fn #on_ident_fn(&mut self, callback: Option<#on_ident>);
 
                 #custom

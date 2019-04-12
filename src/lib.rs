@@ -15,7 +15,11 @@ pub fn able(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 #[proc_macro]
 pub fn has(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    has::make(item)
+    has::make(item, false)
+}
+#[proc_macro]
+pub fn has_reacted(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    has::make(item, true)
 }
 
 #[proc_macro]

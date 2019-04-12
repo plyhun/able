@@ -1,12 +1,13 @@
 use heck::*;
 use proc_macro2::Span;
 use quote::{quote, ToTokens};
-use syn::{Ident, Type};
+use syn::{Ident, Type, Token};
+use syn::punctuated::Punctuated;
 
 pub struct On<'a> {
     pub ident_camel: &'a Ident,
     pub ident_owner_camel: &'a Ident,
-    pub params: &'a Vec<Type>,
+    pub params: Option<&'a Punctuated<Type, Token![,]>>,
 }
 
 impl<'a> ToTokens for On<'a> {
