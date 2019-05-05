@@ -3,7 +3,7 @@ use proc_macro2::Span;
 use quote::{quote, ToTokens};
 use syn::parse::{Parse, ParseStream, Result};
 use syn::punctuated::Punctuated;
-use syn::{braced, parenthesized, parse_macro_input, token, Ident, Lifetime, Token, Type, TypeReference, TypeTraitObject, TraitBound, TraitBoundModifier, TypeParamBound, Path, PathSegment, PathArguments};
+use syn::{braced, parenthesized, parse_macro_input, token, Ident, Lifetime, Path, PathArguments, PathSegment, Token, TraitBound, TraitBoundModifier, Type, TypeParamBound, TypePath, TypeReference, TypeTraitObject};
 
 use std::iter::FromIterator;
 
@@ -89,46 +89,21 @@ impl ToTokens for AbleTo {
         let ident = &self.name.to_string().to_camel_case();
 
         let ident_able = Ident::new(&format!("{}able", ident).to_camel_case(), Span::call_site());
-        let ident_able_inner = Ident::new(
-            &format!("{}ableInner", ident).to_camel_case(),
-            Span::call_site(),
-        );
+        let ident_able_inner = Ident::new(&format!("{}ableInner", ident).to_camel_case(), Span::call_site());
 
         let ident_fn = Ident::new(&format!("{}", ident).to_snake_case(), Span::call_site());
         let on_ident_fn = Ident::new(&format!("on_{}", ident).to_snake_case(), Span::call_site());
 
-        let as_into = &crate::as_into::AsInto {
-            ident_camel: &ident_able,
-        };
+        let as_into = &crate::as_into::AsInto { ident_camel: &ident_able };
 
-        let params = &self
-            .params
-            .as_ref()
-            .map(|punct| punct.iter().map(|i| i.clone()).collect::<Vec<_>>())
-            .unwrap_or(vec![]);
-        let param_names = &(0..params.len())
-            .map(|i| Ident::new(&format!("arg{}", i), Span::call_site()))
-            .collect::<Vec<_>>();
+        let params = &self.params.as_ref().map(|punct| punct.iter().map(|i| i.clone()).collect::<Vec<_>>()).unwrap_or(vec![]);
+        let param_names = &(0..params.len()).map(|i| Ident::new(&format!("arg{}", i), Span::call_site())).collect::<Vec<_>>();
 
-        let extends = self
-            .extends
-            .as_ref()
-            .map(|punct| punct.iter().map(|i| i.clone()).collect::<Vec<_>>())
-            .unwrap_or(vec![]);
+        let extends = self.extends.as_ref().map(|punct| punct.iter().map(|i| i.clone()).collect::<Vec<_>>()).unwrap_or(vec![]);
         let extends_inner = self
             .extends
             .as_ref()
-            .map(|punct| {
-                punct
-                    .iter()
-                    .map(|i| {
-                        Ident::new(
-                            &format!("{}Inner", i.to_string().to_camel_case()),
-                            Span::call_site(),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            })
+            .map(|punct| punct.iter().map(|i| Ident::new(&format!("{}Inner", i.to_string().to_camel_case()), Span::call_site())).collect::<Vec<_>>())
             .unwrap_or(vec![]);
 
         let custom = &self.custom;
@@ -142,32 +117,55 @@ impl ToTokens for AbleTo {
             paren: token::Paren { span: Span::call_site() },
             //ident_owner_camel: ident_able.clone(),
             params: Punctuated::new(),
-            ret: crate::on::OnReturnParams::None
+            ret: crate::on::OnReturnParams::Single(
+                token::RArrow { spans: [Span::call_site(), Span::call_site()] },
+                Type::Path(TypePath {
+                    qself: None,
+                    path: Path {
+                        leading_colon: None,
+                        segments: Punctuated::from_iter(
+                            vec![PathSegment {
+                                ident: Ident::new("bool", Span::call_site()),
+                                arguments: PathArguments::None,
+                            }]
+                            .into_iter(),
+                        ),
+                    },
+                }),
+            ),
+            default_ret: Some(Ident::new("true", Span::call_site())),
         };
         let tto = TypeReference {
             and_token: token::And { spans: [Span::call_site()] },
             lifetime: None,
             mutability: Some(token::Mut { span: Span::call_site() }),
             elem: Box::new(Type::TraitObject(TypeTraitObject {
-            dyn_token: Some(token::Dyn { span: Span::call_site() }),
-            bounds: Punctuated::from_iter(vec![TypeParamBound::Trait(TraitBound {
-                paren_token: None,
-                modifier: TraitBoundModifier::None,
-                lifetimes: None,
-                path: Path {
-                    leading_colon: None,
-                    segments: Punctuated::from_iter(vec![PathSegment {
-                        ident: ident_able.clone(),
-                        arguments: PathArguments::None,    
-                    }].into_iter())
-                }    
-            })].into_iter())
-        }))};
+                dyn_token: Some(token::Dyn { span: Span::call_site() }),
+                bounds: Punctuated::from_iter(
+                    vec![TypeParamBound::Trait(TraitBound {
+                        paren_token: None,
+                        modifier: TraitBoundModifier::None,
+                        lifetimes: None,
+                        path: Path {
+                            leading_colon: None,
+                            segments: Punctuated::from_iter(
+                                vec![PathSegment {
+                                    ident: ident_able.clone(),
+                                    arguments: PathArguments::None,
+                                }]
+                                .into_iter(),
+                            ),
+                        },
+                    })]
+                    .into_iter(),
+                ),
+            })),
+        };
         on.params.push(Type::Reference(tto));
         if let Some(ref params) = self.params {
             params.iter().for_each(|i| on.params.push(i.clone()));
         }
-        
+
         let on_ident = Ident::new(&format!("On{}", ident).to_camel_case(), Span::call_site());
 
         let expr = quote! {
@@ -179,7 +177,7 @@ impl ToTokens for AbleTo {
                 #as_into
             }
             pub trait #ident_able_inner: #(#extends_inner+)* #static_inner {
-                fn #ident_fn(&mut self, #(#param_names: #params,)* skip_callbacks: bool) -> bool; 
+                fn #ident_fn(&mut self, #(#param_names: #params,)* skip_callbacks: bool) -> bool;
                 fn #on_ident_fn(&mut self, callback: Option<#on_ident>);
 
                 #custom

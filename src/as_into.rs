@@ -12,14 +12,8 @@ impl<'a> ToTokens for AsInto<'a> {
         let ident = &self.ident_camel;
 
         let as_ident = Ident::new(&format!("as_{}", ident).to_snake_case(), Span::call_site());
-        let as_ident_mut = Ident::new(
-            &format!("as_{}_mut", ident).to_snake_case(),
-            Span::call_site(),
-        );
-        let into_ident = Ident::new(
-            &format!("into_{}", ident).to_snake_case(),
-            Span::call_site(),
-        );
+        let as_ident_mut = Ident::new(&format!("as_{}_mut", ident).to_snake_case(), Span::call_site());
+        let into_ident = Ident::new(&format!("into_{}", ident).to_snake_case(), Span::call_site());
 
         let expr = quote! {
             fn #as_ident(&self) -> &dyn #ident;

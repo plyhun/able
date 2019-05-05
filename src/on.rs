@@ -23,6 +23,7 @@ pub(crate) struct On {
     pub paren: token::Paren,
     pub params: Punctuated<Type, Token![,]>,
     pub ret: OnReturnParams,
+    pub default_ret: Option<Ident>,
 }
 
 impl Parse for On {
@@ -46,7 +47,8 @@ impl Parse for On {
                 } else {
                     OnReturnParams::None
                 }
-            }
+            },
+            default_ret: None,
         })
     }
 }
@@ -55,11 +57,34 @@ impl ToTokens for On {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let ident = &self.name.to_string().to_camel_case();
         let params = &self.params;
+        let param_names = &(0..params.len()).map(|i| Ident::new(&format!("arg{}", i), Span::call_site())).collect::<Vec<_>>();
 
         let on_ident = Ident::new(&format!("On{}", ident).to_camel_case(), Span::call_site());
+        let ret = match self.ret {
+            OnReturnParams::None => quote!{},
+            OnReturnParams::Single(arrow, ref ty) => quote!{
+                #arrow #ty
+            },
+            OnReturnParams::Multi(arrow, _, ref params) => quote!{
+                #arrow (#params)
+            }
+        };
+        let default_ret = match self.default_ret {
+            Some(ref value) => quote! {
+                impl <T> From<T> for #on_ident where T: FnMut(#(#params,)*) + Sized + 'static {
+                    fn from(t: T) -> #on_ident {
+                        #on_ident(CallbackId::next(), Box::new(move |#(#param_names,)*| {
+                            t(#(#param_names,)*);        
+                            #value
+                        }))
+                    }
+                }
+            },
+            None => quote! {}
+        };
 
         let expr = quote! {
-            pub struct #on_ident(CallbackId, Box<dyn FnMut(#(#params,)* )>);
+            pub struct #on_ident(CallbackId, Box<dyn FnMut(#(#params,)* ) #ret>);
 
             impl Callback for #on_ident {
                 fn name(&self) -> &'static str {
@@ -69,29 +94,31 @@ impl ToTokens for On {
                     self.0
                 }
             }
-
-            impl <T> From<T> for #on_ident where T: FnMut(#(#params,)*) + Sized + 'static {
+            
+            //#default_ret
+            
+            impl <T> From<T> for #on_ident where T: FnMut(#(#params,)*) #ret + Sized + 'static {
                 fn from(t: T) -> #on_ident {
                     #on_ident(CallbackId::next(), Box::new(t))
                 }
             }
-            impl AsRef<dyn FnMut(#(#params,)*)> for #on_ident {
-                fn as_ref(&self) -> &(dyn FnMut(#(#params,)*)  + 'static) {
+            impl AsRef<dyn FnMut(#(#params,)*) #ret> for #on_ident {
+                fn as_ref(&self) -> &(dyn FnMut(#(#params,)*) #ret + 'static) {
                     self.1.as_ref()
                 }
             }
-            impl AsMut<dyn FnMut(#(#params,)*)> for #on_ident {
-                fn as_mut(&mut self) -> &mut (dyn FnMut(#(#params,)*) + 'static) {
+            impl AsMut<dyn FnMut(#(#params,)*) #ret> for #on_ident {
+                fn as_mut(&mut self) -> &mut (dyn FnMut(#(#params,)*) #ret + 'static) {
                     self.1.as_mut()
                 }
             }
-            impl From<#on_ident> for (CallbackId, Box<dyn FnMut(#(#params,)*)>) {
+            impl From<#on_ident> for (CallbackId, Box<dyn FnMut(#(#params,)*) #ret>) {
                 fn from(a: #on_ident) -> Self {
                     (a.0, a.1)
                 }
             }
-            impl From<(CallbackId, Box<dyn FnMut(#(#params,)*)>)> for #on_ident {
-                fn from(a: (CallbackId, Box<dyn FnMut(#(#params,)*)>)) -> Self {
+            impl From<(CallbackId, Box<dyn FnMut(#(#params,)*) #ret>)> for #on_ident {
+                fn from(a: (CallbackId, Box<dyn FnMut(#(#params,)*) #ret>)) -> Self {
                     #on_ident(a.0, a.1)
                 }
             }

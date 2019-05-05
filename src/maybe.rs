@@ -17,9 +17,7 @@ pub(crate) struct Maybe {
 
 impl Parse for Maybe {
     fn parse(input: ParseStream) -> Result<Self> {
-        Ok(Self {
-            name: input.parse()?,
-        })
+        Ok(Self { name: input.parse()? })
     }
 }
 
@@ -27,16 +25,10 @@ impl ToTokens for Maybe {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let ident = &self.name.to_string().to_camel_case();
 
-        let maybe_ident = Ident::new(
-            &format!("Maybe{}", ident).to_camel_case(),
-            Span::call_site(),
-        );
+        let maybe_ident = Ident::new(&format!("Maybe{}", ident).to_camel_case(), Span::call_site());
 
         let is_ident_fn = Ident::new(&format!("is_{}", ident).to_snake_case(), Span::call_site());
-        let is_ident_mut_fn = Ident::new(
-            &format!("is_{}_mut", ident).to_snake_case(),
-            Span::call_site(),
-        );
+        let is_ident_mut_fn = Ident::new(&format!("is_{}_mut", ident).to_snake_case(), Span::call_site());
 
         let static_ = Lifetime::new("'static", Span::call_site());
 
