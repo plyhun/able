@@ -57,8 +57,7 @@ impl ToTokens for On {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let ident = &self.name.to_string().to_camel_case();
         let params = &self.params;
-        let param_names = &(0..params.len()).map(|i| Ident::new(&format!("arg{}", i), Span::call_site())).collect::<Vec<_>>();
-
+        
         let on_ident = Ident::new(&format!("On{}", ident).to_camel_case(), Span::call_site());
         let ret = match self.ret {
             OnReturnParams::None => quote!{},
@@ -69,6 +68,8 @@ impl ToTokens for On {
                 #arrow (#params)
             }
         };
+        /*
+        let param_names = &(0..params.len()).map(|i| Ident::new(&format!("arg{}", i), Span::call_site())).collect::<Vec<_>>();
         let default_ret = match self.default_ret {
             Some(ref value) => quote! {
                 impl <T> From<T> for #on_ident where T: FnMut(#(#params,)*) + Sized + 'static {
@@ -81,7 +82,7 @@ impl ToTokens for On {
                 }
             },
             None => quote! {}
-        };
+        };*/
 
         let expr = quote! {
             pub struct #on_ident(CallbackId, Box<dyn FnMut(#(#params,)* ) #ret>);
