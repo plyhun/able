@@ -3,7 +3,9 @@ use proc_macro2::Span;
 use quote::{quote, ToTokens};
 use syn::parse::{Parse, ParseStream, Result};
 use syn::punctuated::Punctuated;
-use syn::{braced, parenthesized, parse_macro_input, token, Ident, Lifetime, Token, Type};
+use syn::{braced, parenthesized, parse_macro_input, token, Ident, Token, Type, TypeReference, TypeTraitObject, TraitBound, TraitBoundModifier, TypeParamBound, Path, PathSegment, PathArguments};
+
+use std::iter::FromIterator;
 
 pub fn make(item: proc_macro::TokenStream, use_reactor: bool) -> proc_macro::TokenStream {
     let mut parsed = parse_macro_input!(item as Has);
@@ -19,10 +21,11 @@ struct HasReturnParams<'a> {
     params: &'a Punctuated<Type, Token![,]>,
     paren: token::Paren,
 }
-impl <'a> ToTokens for HasReturnParams<'a> {
+impl<'a> ToTokens for HasReturnParams<'a> {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         if self.params.len() > 1 {
-            self.paren.surround(tokens, |tokens| self.params.to_tokens(tokens));
+            self.paren
+                .surround(tokens, |tokens| self.params.to_tokens(tokens));
         } else {
             self.params.to_tokens(tokens)
         }
@@ -109,7 +112,10 @@ impl ToTokens for Has {
         let ident_fn = Ident::new(&format!("{}", ident).to_snake_case(), Span::call_site());
         let set_ident_fn = Ident::new(&format!("set_{}", ident).to_snake_case(), Span::call_site());
         let on_ident_fn = Ident::new(&format!("on_{}", ident).to_snake_case(), Span::call_site());
-        let on_ident_set_fn = Ident::new(&format!("on_{}_set", ident).to_snake_case(), Span::call_site());
+        let on_ident_set_fn = Ident::new(
+            &format!("on_{}_set", ident).to_snake_case(),
+            Span::call_site(),
+        );
 
         let as_into = &crate::as_into::AsInto {
             ident_camel: &has_ident,
@@ -121,8 +127,10 @@ impl ToTokens for Has {
             .collect::<Vec<_>>();
         let return_params = HasReturnParams {
             params: &self.params,
-            paren: token::Paren { span: Span::call_site() },
-        };    
+            paren: token::Paren {
+                span: Span::call_site(),
+            },
+        };
 
         let extends = self
             .extends
@@ -144,32 +152,79 @@ impl ToTokens for Has {
                     .collect::<Vec<_>>()
             })
             .unwrap_or(vec![]);
+        let extends_base = &self
+            .extends
+            .as_ref()
+            .map(|punct| {
+                punct
+                    .iter()
+                    .map(|i| {
+                        Ident::new(
+                            &format!("{}Base", i.to_string().to_camel_case()),
+                            Span::call_site(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or(vec![]);
+        let extends_base_names = &self
+            .extends
+            .as_ref()
+            .map(|punct| {
+                punct
+                    .iter()
+                    .map(|i| Ident::new(i.to_string().to_snake_case().as_str(), Span::call_site()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or(vec![]);
 
-        let static_ = Lifetime::new("'static", Span::call_site());
-        let static_inner = Lifetime::new("'static", Span::call_site());
-        
         let on_ident = Ident::new(&ident.to_camel_case(), Span::call_site());
-        let on = &crate::on::On {
-            ident_camel: &on_ident,
-            ident_owner_camel: &has_ident,
-            params: Some(params),
+        let mut on = crate::on::On {
+            name: on_ident.clone(),
+            paren: token::Paren { span: Span::call_site() },
+            //ident_owner_camel: ident_able.clone(),
+            params: Punctuated::new(),
+            ret: crate::on::OnReturnParams::None
         };
-		let on_ident = Ident::new(&format!("On{}", ident).to_camel_case(), Span::call_site());
+        let tto = TypeReference {
+            and_token: token::And { spans: [Span::call_site()] },
+            lifetime: None,
+            mutability: Some(token::Mut { span: Span::call_site() }),
+            elem: Box::new(Type::TraitObject(TypeTraitObject {
+            dyn_token: Some(token::Dyn { span: Span::call_site() }),
+            bounds: Punctuated::from_iter(vec![TypeParamBound::Trait(TraitBound {
+                paren_token: None,
+                modifier: TraitBoundModifier::None,
+                lifetimes: None,
+                path: Path {
+                    leading_colon: None,
+                    segments: Punctuated::from_iter(vec![PathSegment {
+                        ident: has_ident.clone(),
+                        arguments: PathArguments::None,    
+                    }].into_iter())
+                }    
+            })].into_iter())
+        }))};
+        on.params.push(Type::Reference(tto));
+        self.params.iter().for_each(|i| on.params.push(i.clone()));
+        
+        let on_ident = Ident::new(&format!("On{}", ident).to_camel_case(), Span::call_site());
 
         let custom = &self.custom;
-        
+
         let inner = match self.inner {
-            InnerType::GetterSetter => quote!{
-                fn #ident_fn(&self) -> #return_params ;
-                fn #set_ident_fn(&mut self #(,#param_names: #params)*);
+            InnerType::GetterSetter => quote! {
+                fn #ident_fn(&self #(,#extends_base_names: &#extends_base)*) -> #return_params ;
+                fn #set_ident_fn(&mut self #(,#extends_base_names: &mut #extends_base)* #(,#param_names: #params)*);
+                fn #on_ident_fn(&mut self, callback: Option<#on_ident>);
             },
-            InnerType::Reactor => quote!{
-                fn #on_ident_set_fn(&mut self, base: &mut MemberBase, value: #return_params) -> bool;
+            InnerType::Reactor => quote! {
+                fn #on_ident_set_fn(&mut self #(,#extends_base_names: &mut #extends_base)*, value: #return_params) -> bool;
             },
         };
 
         let expr = quote! {
-            pub trait #has_ident: AsAny + #static_ #(+#extends)* {
+            pub trait #has_ident: AsAny + 'static #(+#extends)* {
                 fn #ident_fn(&self) -> #return_params ;
                 fn #set_ident_fn(&mut self #(,#param_names: #params)*);
                 fn #on_ident_fn(&mut self, callback: Option<#on_ident>);
@@ -177,7 +232,7 @@ impl ToTokens for Has {
                 #custom
                 #as_into
             }
-            pub trait #has_ident_inner: #static_inner #(+#extends_inner)* {
+            pub trait #has_ident_inner: 'static #(+#extends_inner)* {
                 #inner
                 #custom
             }

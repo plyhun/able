@@ -3,16 +3,18 @@ use proc_macro2::Span;
 use quote::{quote, ToTokens};
 use syn::parse::{Parse, ParseStream, Result};
 use syn::punctuated::Punctuated;
-use syn::{braced, parenthesized, parse_macro_input, token, Ident, Lifetime, Token, Type};
+use syn::{braced, parenthesized, parse_macro_input, token, Ident, Lifetime, Token, Type, TypeReference, TypeTraitObject, TraitBound, TraitBoundModifier, TypeParamBound, Path, PathSegment, PathArguments};
+
+use std::iter::FromIterator;
 
 pub fn make(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let parsed = parse_macro_input!(item as Able);
+    let parsed = parse_macro_input!(item as AbleTo);
     let t = quote!(#parsed);
     dbg!(format!("{:#}", t));
     proc_macro::TokenStream::from(t)
 }
 
-pub(crate) struct Able {
+pub(crate) struct AbleTo {
     name: Ident,
     _paren: Option<token::Paren>,
     params: Option<Punctuated<Type, Token![,]>>,
@@ -22,7 +24,7 @@ pub(crate) struct Able {
     custom: Option<proc_macro2::TokenStream>,
 }
 
-impl Parse for Able {
+impl Parse for AbleTo {
     fn parse(input: ParseStream) -> Result<Self> {
         let mut extends_present = false;
         let mut params = None;
@@ -82,7 +84,7 @@ impl Parse for Able {
     }
 }
 
-impl ToTokens for Able {
+impl ToTokens for AbleTo {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let ident = &self.name.to_string().to_camel_case();
 
@@ -135,11 +137,37 @@ impl ToTokens for Able {
         let static_inner = Lifetime::new("'static", Span::call_site());
 
         let on_ident = Ident::new(&ident.to_camel_case(), Span::call_site());
-        let on = &crate::on::On {
-            ident_camel: &on_ident,
-            ident_owner_camel: &ident_able,
-            params: self.params.as_ref(),
+        let mut on = crate::on::On {
+            name: on_ident.clone(),
+            paren: token::Paren { span: Span::call_site() },
+            //ident_owner_camel: ident_able.clone(),
+            params: Punctuated::new(),
+            ret: crate::on::OnReturnParams::None
         };
+        let tto = TypeReference {
+            and_token: token::And { spans: [Span::call_site()] },
+            lifetime: None,
+            mutability: Some(token::Mut { span: Span::call_site() }),
+            elem: Box::new(Type::TraitObject(TypeTraitObject {
+            dyn_token: Some(token::Dyn { span: Span::call_site() }),
+            bounds: Punctuated::from_iter(vec![TypeParamBound::Trait(TraitBound {
+                paren_token: None,
+                modifier: TraitBoundModifier::None,
+                lifetimes: None,
+                path: Path {
+                    leading_colon: None,
+                    segments: Punctuated::from_iter(vec![PathSegment {
+                        ident: ident_able.clone(),
+                        arguments: PathArguments::None,    
+                    }].into_iter())
+                }    
+            })].into_iter())
+        }))};
+        on.params.push(Type::Reference(tto));
+        if let Some(ref params) = self.params {
+            params.iter().for_each(|i| on.params.push(i.clone()));
+        }
+        
         let on_ident = Ident::new(&format!("On{}", ident).to_camel_case(), Span::call_site());
 
         let expr = quote! {
