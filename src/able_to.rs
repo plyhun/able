@@ -14,6 +14,12 @@ pub fn make(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     proc_macro::TokenStream::from(t)
 }
 
+pub enum AbleToReturnParams {
+    None,
+    Single(token::RArrow, Type),
+    Multi(token::RArrow, token::Paren, Punctuated<Type, Token![,]>),
+}
+
 pub(crate) struct AbleTo {
     name: Ident,
     _paren: Option<token::Paren>,
@@ -22,6 +28,7 @@ pub(crate) struct AbleTo {
     extends: Option<Punctuated<Ident, Token![+]>>,
     _brace: Option<token::Brace>,
     custom: Option<proc_macro2::TokenStream>,
+    ret: AbleToReturnParams,
 }
 
 impl Parse for AbleTo {
@@ -80,6 +87,21 @@ impl Parse for AbleTo {
                 }
             },
             custom: custom.map(|content| content.parse().unwrap()),
+            ret: {
+                let lookahead = input.lookahead1();
+                if lookahead.peek(token::RArrow) {
+                    let arrow = input.parse()?;
+                    let lookahead = input.lookahead1();
+                    if lookahead.peek(token::Paren) {
+                        let content;
+                        AbleToReturnParams::Multi(arrow, parenthesized!(content in input), content.parse_terminated(Type::parse)?)
+                    } else {
+                        AbleToReturnParams::Single(arrow, input.parse()?)
+                    }
+                } else {
+                    AbleToReturnParams::None
+                }
+            },
         })
     }
 }
@@ -107,6 +129,16 @@ impl ToTokens for AbleTo {
             .unwrap_or(vec![]);
 
         let custom = &self.custom;
+        
+        let ret = match self.ret {
+            AbleToReturnParams::None => quote!{},
+            AbleToReturnParams::Single(arrow, ref ty) => quote!{
+                #arrow #ty
+            },
+            AbleToReturnParams::Multi(arrow, _, ref params) => quote!{
+                #arrow (#params)
+            }
+        };
 
         let static_ = Lifetime::new("'static", Span::call_site());
         let static_inner = Lifetime::new("'static", Span::call_site());
@@ -170,14 +202,14 @@ impl ToTokens for AbleTo {
 
         let expr = quote! {
             pub trait #ident_able: #static_ + AsAny #(+#extends)*{
-                fn #ident_fn(&mut self, #(#param_names: #params,)* skip_callbacks: bool) -> bool;
+                fn #ident_fn(&mut self, #(#param_names: #params,)* skip_callbacks: bool) #ret;
                 fn #on_ident_fn(&mut self, callback: Option<#on_ident>);
 
                 #custom
                 #as_into
             }
             pub trait #ident_able_inner: #(#extends_inner+)* #static_inner {
-                fn #ident_fn(&mut self, #(#param_names: #params,)* skip_callbacks: bool) -> bool;
+                fn #ident_fn(&mut self, #(#param_names: #params,)* skip_callbacks: bool) #ret;
                 fn #on_ident_fn(&mut self, callback: Option<#on_ident>);
 
                 #custom

@@ -68,7 +68,7 @@ impl ToTokens for On {
                 #arrow (#params)
             }
         };
-        /*
+        /* // waits for https://github.com/rust-lang/rfcs/issues/1672
         let param_names = &(0..params.len()).map(|i| Ident::new(&format!("arg{}", i), Span::call_site())).collect::<Vec<_>>();
         let default_ret = match self.default_ret {
             Some(ref value) => quote! {
