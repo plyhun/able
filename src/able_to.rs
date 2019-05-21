@@ -3,21 +3,17 @@ use proc_macro2::Span;
 use quote::{quote, ToTokens};
 use syn::parse::{Parse, ParseStream, Result};
 use syn::punctuated::Punctuated;
-use syn::{braced, parenthesized, parse_macro_input, token, Ident, Lifetime, Path, PathArguments, PathSegment, Token, TraitBound, TraitBoundModifier, Type, TypeParamBound, TypePath, TypeReference, TypeTraitObject};
+use syn::{braced, parenthesized, parse_macro_input, token, Ident, Lifetime, Path, PathArguments, PathSegment, Token, TraitBound, TraitBoundModifier, Type, TypeParamBound, TypeReference, TypeTraitObject};
 
 use std::iter::FromIterator;
+
+use crate::on::*;
 
 pub fn make(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let parsed = parse_macro_input!(item as AbleTo);
     let t = quote!(#parsed);
     dbg!(format!("{:#}", t));
     proc_macro::TokenStream::from(t)
-}
-
-pub enum AbleToReturnParams {
-    None,
-    Single(token::RArrow, Type),
-    Multi(token::RArrow, token::Paren, Punctuated<Type, Token![,]>),
 }
 
 pub(crate) struct AbleTo {
@@ -28,7 +24,7 @@ pub(crate) struct AbleTo {
     extends: Option<Punctuated<Ident, Token![+]>>,
     _brace: Option<token::Brace>,
     custom: Option<proc_macro2::TokenStream>,
-    ret: AbleToReturnParams,
+    ret: OnReturnParams,
 }
 
 impl Parse for AbleTo {
@@ -94,12 +90,12 @@ impl Parse for AbleTo {
                     let lookahead = input.lookahead1();
                     if lookahead.peek(token::Paren) {
                         let content;
-                        AbleToReturnParams::Multi(arrow, parenthesized!(content in input), content.parse_terminated(Type::parse)?)
+                        OnReturnParams::Multi(arrow, parenthesized!(content in input), content.parse_terminated(Type::parse)?)
                     } else {
-                        AbleToReturnParams::Single(arrow, input.parse()?)
+                        OnReturnParams::Single(arrow, input.parse()?)
                     }
                 } else {
-                    AbleToReturnParams::None
+                    OnReturnParams::None
                 }
             },
         })
@@ -131,11 +127,11 @@ impl ToTokens for AbleTo {
         let custom = &self.custom;
         
         let ret = match self.ret {
-            AbleToReturnParams::None => quote!{},
-            AbleToReturnParams::Single(arrow, ref ty) => quote!{
+            OnReturnParams::None => quote!{},
+            OnReturnParams::Single(arrow, ref ty) => quote!{
                 #arrow #ty
             },
-            AbleToReturnParams::Multi(arrow, _, ref params) => quote!{
+            OnReturnParams::Multi(arrow, _, ref params) => quote!{
                 #arrow (#params)
             }
         };
@@ -149,22 +145,7 @@ impl ToTokens for AbleTo {
             paren: token::Paren { span: Span::call_site() },
             //ident_owner_camel: ident_able.clone(),
             params: Punctuated::new(),
-            ret: crate::on::OnReturnParams::Single(
-                token::RArrow { spans: [Span::call_site(), Span::call_site()] },
-                Type::Path(TypePath {
-                    qself: None,
-                    path: Path {
-                        leading_colon: None,
-                        segments: Punctuated::from_iter(
-                            vec![PathSegment {
-                                ident: Ident::new("bool", Span::call_site()),
-                                arguments: PathArguments::None,
-                            }]
-                            .into_iter(),
-                        ),
-                    },
-                }),
-            ),
+            ret: self.ret.clone(),
             default_ret: Some(Ident::new("true", Span::call_site())),
         };
         let tto = TypeReference {

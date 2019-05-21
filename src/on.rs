@@ -12,6 +12,7 @@ pub fn make(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     proc_macro::TokenStream::from(t)
 }
 
+#[derive(Clone)]
 pub enum OnReturnParams {
     None,
     Single(token::RArrow, Type),
